@@ -330,6 +330,16 @@ pub fn eval_step(program: *Program) bool {
 	}
 	i = 0;
 	while (i < program.data.items.len){
+		if (intrinsic_append(program, i)){
+			return true;
+		}
+		if (intrinsic_bottom(program, i)){
+			return true;
+		}
+		i += 1;
+	}
+	i = 0;
+	while (i < program.data.items.len){
 		var k: u64 = terms.items.len;
 		while (k > 0){
 			const term = terms.items[k-1];
@@ -357,6 +367,32 @@ pub fn append_step(program: *Program, stream: *Program) bool {
 		std.debug.print("\n", .{});
 	}
 	return true;
+}
+
+pub fn intrinsic_append(program: *Program, i: u64) bool {
+	if (i+1 >= program.data.items.len){
+		return false;
+	}
+	if (program.data.items[i].comp) |composition| {
+		//TODO
+		return true;
+	}
+	return false;
+}
+
+pub fn intrinsic_bottom(program: *Program, i: u64) bool {
+	if (i+1 >= program.data.items.len){
+		return false;
+	}
+	if (program.data.items[i].comp) |composition| {
+		if (program.data.items[i+1].name) |bot| {
+			if (bot.tag == BOTTOM){
+				//TODO
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 pub fn main() !void {
