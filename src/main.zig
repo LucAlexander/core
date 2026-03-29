@@ -215,6 +215,9 @@ pub fn parse(mem: *const std.mem.Allocator, tokens: []const Token, i: *u64) Pars
 }
 
 pub fn parse_term(mem: *const std.mem.Allocator, instructions: []Instruction, i: *u64) ?Term {
+	if (instructions.len-i.* < 3){
+		return null;
+	}
 	const save = i.*;
 	i.* += 1;
 	var term = Term{
@@ -245,20 +248,23 @@ pub fn parse_term(mem: *const std.mem.Allocator, instructions: []Instruction, i:
 	}
 	i.* += 1;
 	const body = i.*;
+	if (i.* >= instructions.len){
+		return null;
+	}
 	while (i.* < instructions.len){
 		const inst = instructions[i.*];
 		if (inst.name) |n|{
 			if (n.tag == CLOSE_TERM){
-				break;
+				term.body = instructions[body .. i.*];
+				term.bound_start = save;
+				term.bound_end = i.*;
+				i.* += 1;
+				return term;
 			}
 		}
 		i.* += 1;
 	}
-	term.body = instructions[body .. i.*];
-	term.bound_start = save;
-	term.bound_end = i.*;
-	i.* += 1;
-	return term;
+	return null;
 }
 
 pub fn apply(program: *Program, i: u64, term: Term) bool {
@@ -359,8 +365,6 @@ pub fn append_step(program: *Program, stream: *Program) bool {
 	}
 	program.data.append(stream.data.items[0]) catch unreachable;
 	_ = stream.data.orderedRemove(0);
-	program.show();
-	std.debug.print("\n", .{});
 	while (eval_step(program)){
 		std.debug.print(" => ", .{});
 		program.show();
@@ -405,15 +409,14 @@ pub fn intrinsic_bottom(program: *Program, i: u64) bool {
 	return false;
 }
 
-pub fn main() !void {
+pub fn run(text: []const u8) void {
 	const heap = std.heap.page_allocator;
 	const main_buffer = heap.alloc(u8, 0x100000000) catch unreachable;
 	var main_mem_fixed = std.heap.FixedBufferAllocator.init(main_buffer);
 	var main_mem = main_mem_fixed.allocator();
-	const program_text = "[.x .y swp: y x]";
-	const stream_text = "1 2 swp";
+	const program_text = "";
 	const tokens = tokenize(&main_mem, program_text);
-	const input_tokens = tokenize(&main_mem, stream_text);
+	const input_tokens = tokenize(&main_mem, text);
 	var i: u64 = 0;
 	var program = parse(&main_mem, tokens.items, &i) catch unreachable;
 	i = 0;
@@ -422,4 +425,33 @@ pub fn main() !void {
 		program.show();
 		std.debug.print("\n", .{});
 	}
+}
+
+pub fn idle() void {
+	const heap = std.heap.page_allocator;
+	const main_buffer = heap.alloc(u8, 0x100000000) catch unreachable;
+	var main_mem_fixed = std.heap.FixedBufferAllocator.init(main_buffer);
+	var main_mem = main_mem_fixed.allocator();
+	const program_text = "";
+	const tokens = tokenize(&main_mem, program_text);
+	var i: u64 = 0;
+	var program = parse(&main_mem, tokens.items, &i) catch unreachable;
+	const stdin = std.io.getStdIn().reader();
+	while (true){
+		std.debug.print("> ", .{});
+		program.show();
+		var buf = main_mem.alloc(u8, 64) catch unreachable;
+		const len = stdin.read(buf) catch unreachable;
+		const input = buf[0..len];
+		const stream_tokens = tokenize(&main_mem, input);
+		i = 0;
+		var stream = parse(&main_mem, stream_tokens.items, &i) catch unreachable;
+		while (append_step(&program, &stream)){}
+		program.show();
+		std.debug.print("\n", .{});
+	}
+}
+
+pub fn main() !void {
+	idle();
 }
