@@ -346,13 +346,13 @@ pub fn eval_step(program: *Program) bool {
 	}
 	i = 0;
 	while (i < program.data.items.len){
-		var k: u64 = terms.items.len;
-		while (k > 0){
-			const term = terms.items[k-1];
+		var k: u64 = 0;
+		while (k < terms.items.len){
+			const term = terms.items[k];
 			if (apply(program, i, term)){
 				return true;
 			}
-			k -= 1;
+			k += 1;
 		}
 		i += 1;
 	}
@@ -427,25 +427,21 @@ pub fn run(text: []const u8) void {
 	}
 }
 
-pub fn idle() void {
-	const heap = std.heap.page_allocator;
-	const main_buffer = heap.alloc(u8, 0x100000000) catch unreachable;
-	var main_mem_fixed = std.heap.FixedBufferAllocator.init(main_buffer);
-	var main_mem = main_mem_fixed.allocator();
+pub fn idle(mem: *const std.mem.Allocator) void {
 	const program_text = "";
-	const tokens = tokenize(&main_mem, program_text);
+	const tokens = tokenize(mem, program_text);
 	var i: u64 = 0;
-	var program = parse(&main_mem, tokens.items, &i) catch unreachable;
+	var program = parse(mem, tokens.items, &i) catch unreachable;
 	const stdin = std.io.getStdIn().reader();
 	while (true){
 		std.debug.print("> ", .{});
 		program.show();
-		var buf = main_mem.alloc(u8, 64) catch unreachable;
+		var buf = mem.alloc(u8, 64) catch unreachable;
 		const len = stdin.read(buf) catch unreachable;
 		const input = buf[0..len];
-		const stream_tokens = tokenize(&main_mem, input);
+		const stream_tokens = tokenize(mem, input);
 		i = 0;
-		var stream = parse(&main_mem, stream_tokens.items, &i) catch unreachable;
+		var stream = parse(mem, stream_tokens.items, &i) catch unreachable;
 		while (append_step(&program, &stream)){}
 		program.show();
 		std.debug.print("\n", .{});
@@ -453,5 +449,9 @@ pub fn idle() void {
 }
 
 pub fn main() !void {
-	idle();
+	const heap = std.heap.page_allocator;
+	const main_buffer = heap.alloc(u8, 0x10000) catch unreachable;
+	var main_mem_fixed = std.heap.FixedBufferAllocator.init(main_buffer);
+	var main_mem = main_mem_fixed.allocator();
+	idle(&main_mem);
 }
