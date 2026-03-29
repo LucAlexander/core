@@ -370,12 +370,18 @@ pub fn append_step(program: *Program, stream: *Program) bool {
 }
 
 pub fn intrinsic_append(program: *Program, i: u64) bool {
-	if (i+1 >= program.data.items.len){
+	if (i+2 >= program.data.items.len){
 		return false;
 	}
-	if (program.data.items[i].comp) |composition| {
-		//TODO
-		return true;
+	if (program.data.items[i].comp) |_| {
+		if (program.data.items[i+1].name) |name| {
+			if (name.tag == APPEND){
+				program.data.items[i].comp.?.data.append(program.data.items[i+2]) catch unreachable;
+				_ = program.data.orderedRemove(i+1);
+				_ = program.data.orderedRemove(i+1);
+				return true;
+			}
+		}
 	}
 	return false;
 }
@@ -384,10 +390,14 @@ pub fn intrinsic_bottom(program: *Program, i: u64) bool {
 	if (i+1 >= program.data.items.len){
 		return false;
 	}
-	if (program.data.items[i].comp) |composition| {
-		if (program.data.items[i+1].name) |bot| {
+	if (program.data.items[i+1].name) |bot| {
+		if (program.data.items[i].comp) |composition| {
 			if (bot.tag == BOTTOM){
-				//TODO
+				var data = Buffer(Instruction).init(program.mem.*);
+				data.appendSlice(program.data.items[0..i]) catch unreachable;
+				data.appendSlice(composition.data.items) catch unreachable;
+				data.appendSlice(program.data.items[i+2..program.data.items.len]) catch unreachable;
+				program.data = data;
 				return true;
 			}
 		}
