@@ -12,6 +12,7 @@ const CLOSE_GROUP=')';
 const VIEW_GROUP='/';
 const BOTTOM='!';
 const APPEND='+';
+const USING='#';
 const ATOM:TOKEN = 0;
 
 const Token = struct {
@@ -37,6 +38,7 @@ pub fn tokenize(mem: *const std.mem.Allocator, text: []const u8) Buffer(Token) {
 			CLOSE_GROUP,
 			VIEW_GROUP,
 			BOTTOM,
+			USING,
 			APPEND => {
 				tokens.append(Token{
 					.tag=c,
@@ -58,6 +60,7 @@ pub fn tokenize(mem: *const std.mem.Allocator, text: []const u8) Buffer(Token) {
 						CLOSE_GROUP,
 						VIEW_GROUP,
 						BOTTOM,
+						USING,
 						APPEND => {
 							break :outer;
 						},
@@ -177,6 +180,7 @@ pub fn parse(mem: *const std.mem.Allocator, tokens: []const Token, i: *u64) Pars
 			CLOSE_TERM,
 			IMPL_TERM,
 			BOTTOM,
+			USING,
 			APPEND,
 			ATOM => {
 				inst.name = token;
@@ -342,6 +346,9 @@ pub fn eval_step(program: *Program) bool {
 		if (intrinsic_bottom(program, i)){
 			return true;
 		}
+		if (intrinsic_using(program, i)){
+			return true;
+		}
 		i += 1;
 	}
 	i = 0;
@@ -409,6 +416,33 @@ pub fn intrinsic_bottom(program: *Program, i: u64) bool {
 	return false;
 }
 
+pub fn intrinsic_using(program: *Program, i: u64) bool {
+	if (i+1 >= program.data.items.len){
+		return false;
+	}
+	if (program.data.items[i+1].name) |filename| {
+		if (program.data.items[i].name) |use| {
+			if (use.tag == USING){
+				const contents = get_contents(program.mem, filename.text) catch {
+					return false;
+				};
+				var k: u64 = 0;
+				const tokens = tokenize(program.mem, contents);
+				const segment = parse(program.mem, tokens.items, &k) catch {
+					return false;
+				};
+				var data = Buffer(Instruction).init(program.mem.*);
+				data.appendSlice(program.data.items[0..i]) catch unreachable;
+				data.appendSlice(segment.data.items) catch unreachable;
+				data.appendSlice(program.data.items[i+2..program.data.items.len]) catch unreachable;
+				program.data = data;
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 pub fn run(text: []const u8) void {
 	const heap = std.heap.page_allocator;
 	const main_buffer = heap.alloc(u8, 0x100000000) catch unreachable;
@@ -448,7 +482,7 @@ pub fn idle(mem: *const std.mem.Allocator) void {
 	}
 }
 
-pub fn get_contents(mem: *const std.mem.Allocator, filename: []u8) ![]u8 {
+pub fn get_contents(mem: *const std.mem.Allocator, filename: []const u8) ![]u8 {
 	var infile = std.fs.cwd().openFile(filename, .{}) catch |err| {
 		std.debug.print("File not found: {s}\n", .{filename});
 		return err;
