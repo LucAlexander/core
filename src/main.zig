@@ -84,7 +84,7 @@ const Instruction = struct {
 
 	pub fn eql(a: Instruction, b: Instruction) bool {
 		if (a.name) |n| {
-			if (b.name) |m| {
+	if (b.name) |m| {
 				if (n.tag != m.tag){
 					return false;
 				}
@@ -448,10 +448,45 @@ pub fn idle(mem: *const std.mem.Allocator) void {
 	}
 }
 
+pub fn get_contents(mem: *const std.mem.Allocator, filename: []u8) ![]u8 {
+	var infile = std.fs.cwd().openFile(filename, .{}) catch |err| {
+		std.debug.print("File not found: {s}\n", .{filename});
+		return err;
+	};
+	defer infile.close();
+	const stat = infile.stat() catch |err| {
+		std.debug.print("Errored file stat: {s}\n", .{filename});
+		return err;
+	};
+	const contents = infile.readToEndAlloc(mem.*, stat.size+1) catch |err| {
+		std.debug.print("Error reading file: {s}\n", .{filename});
+		return err;
+	};
+	return contents;
+}
+
 pub fn main() !void {
 	const heap = std.heap.page_allocator;
 	const main_buffer = heap.alloc(u8, 0x10000) catch unreachable;
 	var main_mem_fixed = std.heap.FixedBufferAllocator.init(main_buffer);
 	var main_mem = main_mem_fixed.allocator();
-	idle(&main_mem);
+	const args = try std.process.argsAlloc(main_mem);
+	if (args.len == 1){
+		std.debug.print("-h for help\n", .{});
+		return;
+	}
+	if (std.mem.eql(u8, args[1], "-h")){
+		std.debug.print("Help Menu\n", .{});
+		std.debug.print("   -h : Show this message\n", .{});
+		std.debug.print("   -i : interactive mode\n", .{});
+		std.debug.print("   [filename] : evaluate file\n", .{});
+		return;
+	}
+	if (std.mem.eql(u8, args[1], "-i")){
+		idle(&main_mem);
+		return;
+	}
+	const filename = args[1];
+	const contents = try get_contents(&main_mem, filename);
+	run(contents);
 }
