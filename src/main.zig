@@ -135,6 +135,7 @@ const Program = struct {
 	mem: *const std.mem.Allocator,
 	tmp: *const std.mem.Allocator,
 	data: Buffer(Instruction),
+	swap: Buffer(Instruction),
 
 	pub fn show(self: *const Program) void {
 		for (self.data.items) |inst| {
@@ -166,7 +167,8 @@ pub fn parse(mem: *const std.mem.Allocator, tokens: []const Token, i: *u64) Pars
 	var program = Program{
 		.mem = mem,
 		.tmp = mem,
-		.data = Buffer(Instruction).init(mem.*)
+		.data = Buffer(Instruction).init(mem.*),
+		.swap = Buffer(Instruction).init(mem.*)
 	};
 	while (i.* < tokens.len){
 		const token = tokens[i.*];
@@ -308,7 +310,8 @@ pub fn apply(program: *Program, i: u64, term: Term) bool {
 		k += 1;
 		arg += 1;
 	}
-	var data = Buffer(Instruction).init(program.mem.*);
+	var data = program.swap;
+	data.clearRetainingCapacity();
 	data.appendSlice(program.data.items[0..i]) catch unreachable;
 	for (term.body) |atom| {
 		if (atom.name) |name| {
@@ -320,6 +323,7 @@ pub fn apply(program: *Program, i: u64, term: Term) bool {
 		data.append(atom) catch unreachable;
 	}
 	data.appendSlice(program.data.items[k..program.data.items.len]) catch unreachable;
+	program.swap = program.data;
 	program.data = data;
 	return true;
 }
@@ -404,10 +408,12 @@ pub fn intrinsic_bottom(program: *Program, i: u64) bool {
 	if (program.data.items[i+1].name) |bot| {
 		if (program.data.items[i].comp) |composition| {
 			if (bot.tag == BOTTOM){
-				var data = Buffer(Instruction).init(program.mem.*);
+				var data = program.swap;
+				data.clearRetainingCapacity();
 				data.appendSlice(program.data.items[0..i]) catch unreachable;
 				data.appendSlice(composition.data.items) catch unreachable;
 				data.appendSlice(program.data.items[i+2..program.data.items.len]) catch unreachable;
+				program.swap = program.data;
 				program.data = data;
 				return true;
 			}
@@ -431,10 +437,12 @@ pub fn intrinsic_using(program: *Program, i: u64) bool {
 				const segment = parse(program.mem, tokens.items, &k) catch {
 					return false;
 				};
-				var data = Buffer(Instruction).init(program.mem.*);
+				var data = program.swap;
+				data.clearRetainingCapacity();
 				data.appendSlice(program.data.items[0..i]) catch unreachable;
 				data.appendSlice(segment.data.items) catch unreachable;
 				data.appendSlice(program.data.items[i+2..program.data.items.len]) catch unreachable;
+				program.swap = program.data;
 				program.data = data;
 				return true;
 			}
