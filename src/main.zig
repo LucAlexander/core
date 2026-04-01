@@ -507,7 +507,7 @@ pub fn get_contents(mem: *const std.mem.Allocator, filename: []const u8) ![]u8 {
 	return contents;
 }
 
-pub fn coremain() !void {
+pub fn main() !void {
 	const heap = std.heap.page_allocator;
 	const main_buffer = heap.alloc(u8, 0x10000) catch unreachable;
 	var main_mem_fixed = std.heap.FixedBufferAllocator.init(main_buffer);
@@ -531,80 +531,5 @@ pub fn coremain() !void {
 	const filename = args[1];
 	const contents = try get_contents(&main_mem, filename);
 	run(contents);
-}
-
-// METABOLIZERS
-
-const HyperBranch = struct {
-	dest: ?u8,
-	source: []u8,
-};
-
-pub fn metabolizer(mem: *const std.mem.Allocator, rng: std.Random, symbol_space: u8, rules: u8) Program {
-	var branches = Buffer(HyperBranch).init(mem.*);
-	var layer = Buffer(?u8).init(mem.*);
-	var old = Buffer(?u8).init(mem.*);
-	var rule_count: u64 = 0;
-	var branch_count: u64 = 2;
-	layer.append(null) catch unreachable;
-	while (rule_count < rules){
-		old.clearRetainingCapacity();
-		old.appendSlice(layer.items) catch unreachable;
-		layer.clearRetainingCapacity();
-		for (0..branch_count) |_| {
-			layer.append(65+rng.intRangeAtMost(u8, 0, symbol_space)) catch unreachable;
-		}
-		for (0..branch_count) |_| {
-			const degree = rng.intRangeAtMost(u64, 1, 2);
-			var branch = HyperBranch{
-				.dest = old.items[rng.intRangeAtMost(u64, 0, old.items.len-1)],
-				.source = mem.alloc(u8, degree) catch unreachable
-			};
-			for (0..degree) |i| {
-				branch.source[i] = layer.items[rng.intRangeAtMost(u64, 0, layer.items.len-1)].?;
-			}
-			branches.append(branch) catch unreachable;
-			rule_count += 1;
-		}
-		branch_count *= 2;
-	}
-	var i: u64 = 0;
-	const tokens = tokenize(mem, "");
-	var program = parse(mem, tokens.items, &i) catch unreachable;
-	for (branches.items) |hyper| {
-		var body = mem.dupe(u8, "[.x f g: h]") catch unreachable;
-		if (hyper.dest) |d| {
-			body[9] = d;
-		}
-		else{
-			body[9] = ' ';
-		}
-		for (0..hyper.source.len) |k| {
-			body[(k*2)+4] = hyper.source[k];
-		}
-		if (hyper.source.len == 1){
-			body[6] = ' ';
-		}
-		i = 0;
-		const stream_tokens = tokenize(mem, body);
-		var stream = parse(mem, stream_tokens.items, &i) catch unreachable;
-		program.show();
-		std.debug.print("<-program\n", .{});
-		stream.show();
-		std.debug.print("<-stream\n", .{});
-		while (append_step(&program, &stream)){}
-	}
-	return program;
-}
-
-pub fn main() !void {
-	const heap = std.heap.page_allocator;
-	const main_buffer = heap.alloc(u8, 0x1000000) catch unreachable;
-	var main_mem_fixed = std.heap.FixedBufferAllocator.init(main_buffer);
-	var main_mem = main_mem_fixed.allocator();
-	var rand = std.crypto.random;
-	var prng = std.Random.DefaultPrng.init(rand.int(u64));
-	var program = metabolizer(&main_mem, prng.random(), 16, 8);
-	program.show();
 }
 
