@@ -134,6 +134,7 @@ const Term = struct {
 const Program = struct {
 	mem: *const std.mem.Allocator,
 	tmp: *const std.mem.Allocator,
+	fbtmp: std.heap.FixedBufferAllocator,
 	data: Buffer(Instruction),
 	swap: Buffer(Instruction),
 
@@ -163,10 +164,11 @@ const ParseError = error {
 	UnknownToken
 };
 
-pub fn parse(mem: *const std.mem.Allocator, tokens: []const Token, i: *u64) ParseError!Program {
+pub fn parse(mem: *const std.mem.Allocator, tmp: *const std.mem.Allocator, fbtmp: std.heap.FixedBufferAllocator, tokens: []const Token, i: *u64) ParseError!Program {
 	var program = Program{
 		.mem = mem,
-		.tmp = mem,
+		.tmp = tmp,
+		.fbtmp = fbtmp,
 		.data = Buffer(Instruction).init(mem.*),
 		.swap = Buffer(Instruction).init(mem.*)
 	};
@@ -199,13 +201,13 @@ pub fn parse(mem: *const std.mem.Allocator, tokens: []const Token, i: *u64) Pars
 						return ParseError.ExpectedGroup;
 					}
 					i.* += 2;
-					inst.comp = try parse(mem, tokens, i);
+					inst.comp = try parse(mem, tmp, fbtmp, tokens, i);
 				}
 				program.data.append(inst) catch unreachable;
 			},
 			OPEN_GROUP => {
 				i.* += 1;
-				inst.comp = try parse(mem, tokens, i);
+				inst.comp = try parse(mem, tmp, fbtmp, tokens, i);
 				program.data.append(inst) catch unreachable;
 			},
 			CLOSE_GROUP => {
@@ -330,7 +332,8 @@ pub fn apply(program: *Program, i: u64, term: Term) bool {
 
 pub fn eval_step(program: *Program) bool {
 	var i: u64 = 0;
-	var terms = Buffer(Term).init(program.mem.*);
+	var terms = Buffer(Term).init(program.tmp.*);
+	defer program.fbtmp.reset();
 	while (i < program.data.items.len) {
 		const inst = program.data.items[i];
 		if (inst.name) |n| {
@@ -434,7 +437,7 @@ pub fn intrinsic_using(program: *Program, i: u64) bool {
 				};
 				var k: u64 = 0;
 				const tokens = tokenize(program.mem, contents);
-				const segment = parse(program.mem, tokens.items, &k) catch {
+				const segment = parse(program.mem, program.tmp, program.fbtmp, tokens.items, &k) catch {
 					return false;
 				};
 				var data = program.swap;
@@ -451,29 +454,25 @@ pub fn intrinsic_using(program: *Program, i: u64) bool {
 	return false;
 }
 
-pub fn run(text: []const u8) void {
-	const heap = std.heap.page_allocator;
-	const main_buffer = heap.alloc(u8, 0x100000000) catch unreachable;
-	var main_mem_fixed = std.heap.FixedBufferAllocator.init(main_buffer);
-	var main_mem = main_mem_fixed.allocator();
+pub fn run(mem: *const std.mem.Allocator, tmp: *const std.mem.Allocator, fbtmp: std.heap.FixedBufferAllocator, text: []const u8) void {
 	const program_text = "";
-	const tokens = tokenize(&main_mem, program_text);
-	const input_tokens = tokenize(&main_mem, text);
+	const tokens = tokenize(mem, program_text);
+	const input_tokens = tokenize(mem, text);
 	var i: u64 = 0;
-	var program = parse(&main_mem, tokens.items, &i) catch unreachable;
+	var program = parse(mem, tmp, fbtmp, tokens.items, &i) catch unreachable;
 	i = 0;
-	var stream = parse(&main_mem, input_tokens.items, &i) catch unreachable;
+	var stream = parse(mem, tmp, fbtmp, input_tokens.items, &i) catch unreachable;
 	while (append_step(&program, &stream)){
 		program.show();
 		std.debug.print("\n", .{});
 	}
 }
 
-pub fn idle(mem: *const std.mem.Allocator) void {
+pub fn idle(mem: *const std.mem.Allocator, tmp: *const std.mem.Allocator, fbtmp: std.heap.FixedBufferAllocator) void {
 	const program_text = "";
 	const tokens = tokenize(mem, program_text);
 	var i: u64 = 0;
-	var program = parse(mem, tokens.items, &i) catch unreachable;
+	var program = parse(mem, tmp, fbtmp, tokens.items, &i) catch unreachable;
 	const stdin = std.io.getStdIn().reader();
 	while (true){
 		std.debug.print("> ", .{});
@@ -483,7 +482,7 @@ pub fn idle(mem: *const std.mem.Allocator) void {
 		const input = buf[0..len];
 		const stream_tokens = tokenize(mem, input);
 		i = 0;
-		var stream = parse(mem, stream_tokens.items, &i) catch unreachable;
+		var stream = parse(mem, tmp, fbtmp, stream_tokens.items, &i) catch unreachable;
 		while (append_step(&program, &stream)){}
 		program.show();
 		std.debug.print("\n", .{});
@@ -510,8 +509,11 @@ pub fn get_contents(mem: *const std.mem.Allocator, filename: []const u8) ![]u8 {
 pub fn main() !void {
 	const heap = std.heap.page_allocator;
 	const main_buffer = heap.alloc(u8, 0x10000) catch unreachable;
+	const temp_buffer = heap.alloc(u8, 0x10000) catch unreachable;
 	var main_mem_fixed = std.heap.FixedBufferAllocator.init(main_buffer);
+	var temp_mem_fixed = std.heap.FixedBufferAllocator.init(temp_buffer);
 	var main_mem = main_mem_fixed.allocator();
+	var temp_mem = temp_mem_fixed.allocator();
 	const args = try std.process.argsAlloc(main_mem);
 	if (args.len == 1){
 		std.debug.print("-h for help\n", .{});
@@ -525,11 +527,11 @@ pub fn main() !void {
 		return;
 	}
 	if (std.mem.eql(u8, args[1], "-i")){
-		idle(&main_mem);
+		idle(&main_mem, &temp_mem, temp_mem_fixed);
 		return;
 	}
 	const filename = args[1];
 	const contents = try get_contents(&main_mem, filename);
-	run(contents);
+	run(&main_mem, &temp_mem, temp_mem_fixed, contents);
 }
 
